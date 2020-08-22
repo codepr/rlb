@@ -3,7 +3,8 @@ use std::io::prelude::*;
 use std::net::{TcpListener, TcpStream};
 
 /// Healthcheck route /healthcheck raw bytes format
-const healthcheck_header: &[u8; 27] = b"GET /healthcheck HTTP/1.1\r\n";
+const HEALTHCHECK_HEADER: &str = "GET /healthcheck HTTP/1.1\r\n";
+const OK_RESPONSE: &str = "HTTP/1.1 200 OK\r\n\r\n";
 
 fn main() {
     let listener = TcpListener::bind("127.0.0.1:6767").unwrap();
@@ -21,7 +22,7 @@ fn handle_connection(mut stream: TcpStream) {
     let mut buffer = [0; 1024];
     stream.read(&mut buffer).unwrap();
     println!("Request: {}", String::from_utf8_lossy(&buffer[..]));
-    let response = if buffer.starts_with(healthcheck_header) {
+    let response = if buffer.starts_with(HEALTHCHECK_HEADER.as_bytes()) {
         healthcheck()
     } else {
         handle_request()
@@ -32,10 +33,10 @@ fn handle_connection(mut stream: TcpStream) {
 
 fn healthcheck<'a>() -> &'a str {
     /// TODO
-    return "HTTP/1.1 200 OK\r\n\r\n";
+    return OK_RESPONSE;
 }
 
 fn handle_request<'a>() -> &'a str {
     /// TODO
-    return "HTTP/1.1 200 OK\r\n\r\n";
+    return OK_RESPONSE;
 }
