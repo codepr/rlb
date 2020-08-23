@@ -1,3 +1,4 @@
+use crate::balancing::LoadBalancing;
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 
 pub struct Backend {
@@ -6,7 +7,6 @@ pub struct Backend {
     pub byte_traffic: AtomicUsize,
     pub health_endpoint: Option<String>,
 }
-
 impl Backend {
     pub fn new(addr: String, health_endpoint: Option<String>) -> Backend {
         Backend {
@@ -29,11 +29,19 @@ impl BackendPool {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.backends.len()
+    }
+
     pub fn from_backends_list(backends: Vec<Backend>) -> BackendPool {
         BackendPool { backends }
     }
 
     pub fn push(&mut self, backend: Backend) {
         self.backends.push(backend);
+    }
+
+    pub fn next_backend(&self, mut algo: impl LoadBalancing) -> Option<usize> {
+        algo.next_backend(&self.backends)
     }
 }

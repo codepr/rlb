@@ -1,19 +1,30 @@
-use rlb::Backend;
-use std::io::Ordering;
-use std::sync::atomic::AtomicUsize;
+use crate::backend::Backend;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-pub trait LoadBalancing<T> {
-    fn next_backend(&self, backends: Vec<T>) -> Option<T>;
+pub trait LoadBalancing {
+    fn next_backend(&mut self, backends: &Vec<Backend>) -> Option<usize>;
 }
 
-pub struct RoundRobinBalancing<T> {
+pub struct RoundRobinBalancing {
     next_index: AtomicUsize,
 }
 
-impl<T> LoadBalancing<T> for RoundRobinBalancing<T> {
-    fn next_backend(&mut self, backends: Vec<T>) -> Option<T> {
+impl RoundRobinBalancing {
+    pub fn new() -> RoundRobinBalancing {
+        RoundRobinBalancing {
+            next_index: AtomicUsize::new(0),
+        }
+    }
+}
+
+impl LoadBalancing for RoundRobinBalancing {
+    fn next_backend(&mut self, backends: &Vec<Backend>) -> Option<usize> {
         let index = self.next_index.load(Ordering::Acquire) % backends.len();
-        self.next_index.store(index + 1, Ordering::Acquire);
-        return Some(backends[index]);
+        self.next_index.store(index + 1, Ordering::Relaxed);
+        if backends[index].alive.load(Ordering::Acquire) {
+            Some(index)
+        } else {
+            None
+        }
     }
 }

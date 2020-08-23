@@ -1,4 +1,5 @@
 use rlb::backend::{Backend, BackendPool};
+use rlb::balancing::RoundRobinBalancing;
 use rlb::threadpool::ThreadPool;
 use std::io::prelude::*;
 use std::net::{TcpListener, TcpStream};
@@ -34,6 +35,7 @@ fn handle_connection(pool: Arc<BackendPool>, mut stream: TcpStream) {
     } else {
         handle_request()
     };
+    let backend_index = pool.next_backend(RoundRobinBalancing::new()).unwrap();
     stream.write(response.as_bytes()).unwrap();
     stream.flush().unwrap();
 }
