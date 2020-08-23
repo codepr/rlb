@@ -7,7 +7,12 @@ pub struct Backend {
     pub byte_traffic: AtomicUsize,
     pub health_endpoint: Option<String>,
 }
+
 impl Backend {
+    /// Create a new Backend
+    ///
+    /// The addr is the connection endpoint representing the backend, health_endpoint is an
+    /// `Option` representing an optional healthcheck endpoint
     pub fn new(addr: String, health_endpoint: Option<String>) -> Backend {
         Backend {
             addr,
@@ -23,6 +28,7 @@ pub struct BackendPool {
 }
 
 impl BackendPool {
+    /// Create a new BackendPool
     pub fn new() -> BackendPool {
         BackendPool {
             backends: Vec::new(),
