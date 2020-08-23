@@ -1,0 +1,39 @@
+use std::sync::atomic::{AtomicBool, AtomicUsize};
+
+pub struct Backend {
+    addr: String,
+    pub alive: AtomicBool,
+    pub byte_traffic: AtomicUsize,
+    pub health_endpoint: Option<String>,
+}
+
+impl Backend {
+    pub fn new(addr: String, health_endpoint: Option<String>) -> Backend {
+        Backend {
+            addr,
+            alive: AtomicBool::new(false),
+            byte_traffic: AtomicUsize::new(0),
+            health_endpoint,
+        }
+    }
+}
+
+pub struct BackendPool {
+    backends: Vec<Backend>,
+}
+
+impl BackendPool {
+    pub fn new() -> BackendPool {
+        BackendPool {
+            backends: Vec::new(),
+        }
+    }
+
+    pub fn from_backends_list(backends: Vec<Backend>) -> BackendPool {
+        BackendPool { backends }
+    }
+
+    pub fn push(&mut self, backend: Backend) {
+        self.backends.push(backend);
+    }
+}
