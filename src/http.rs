@@ -57,16 +57,25 @@ impl fmt::Display for Request {
         }
         let body = match &self.body {
             Some(b) => b,
-            None => "",
+            None => "\r\n",
         };
         let repr = format!(
-            "{} {} {}\r\n{}{}{}",
-            self.method, self.route, self.http_version, &headers_str, body, CRLF
+            "{} {} {}\r\n{}{}",
+            self.method, self.route, self.http_version, &headers_str, body
         );
         write!(f, "{}", repr)
     }
 }
 
+/// Parse an HTTP request
+///
+/// Receive a buffer argument representing a bytearray received from an
+/// open stream.
+///
+/// # Panics
+///
+/// The `parse_request` function will panic in case of missing mandatory fields
+/// like HTTP version, a supported valid method
 pub fn parse_request(buffer: &[u8]) -> Request {
     let request_str = String::from_utf8_lossy(&buffer[..]);
     let valid_versions: HashMap<&str, HttpVersion> = [

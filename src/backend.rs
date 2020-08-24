@@ -55,6 +55,8 @@ impl BackendPool {
 
     pub fn next_backend(&self, mut algo: impl LoadBalancing) -> Result<usize, BackendError> {
         let mut index = None;
+        // Loop until an available backend is found, checking at every run that
+        // there's at least one alive backend to avoid looping forever
         loop {
             if !self.has_backends_available() {
                 break;
