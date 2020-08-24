@@ -1,11 +1,12 @@
-use crate::backend::BackendPool;
+use crate::backend::{Backend, BackendPool};
 use crate::balancing::RoundRobinBalancing;
 use crate::threadpool::ThreadPool;
 use std::io::prelude::*;
-use std::net::{TcpListener, TcpStream};
+use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::Arc;
 
 // Healthcheck route /health raw bytes format
+const CRLF: &str = "\r\n\r\n";
 const HEALTHCHECK_HEADER: &str = "GET /health HTTP/1.1\r\n";
 const OK_RESPONSE: &str = "HTTP/1.1 200 OK\r\n\r\n";
 
@@ -41,20 +42,20 @@ mod handlers {
     use super::*;
 
     pub fn handle_connection(pool: Arc<BackendPool>, mut stream: TcpStream) {
-        let mut buffer = [0; 1024];
+        let mut buffer = [0; 2048];
         stream.read(&mut buffer).unwrap();
-        println!("Request: {}", String::from_utf8_lossy(&buffer[..]));
-        let response = if buffer.starts_with(HEALTHCHECK_HEADER.as_bytes()) {
-            healthcheck()
-        } else {
-            handle_request()
-        };
+        println!("{}", String::from_utf8_lossy(&buffer[..]));
         let balancing_algo = RoundRobinBalancing::new();
-        let index = pool.next_backend(balancing_algo);
-        match index {
-            Ok(i) => println!("Index: {}", i),
-            Err(_) => println!("Index not found"),
-        }
+        let index = match pool.next_backend(balancing_algo) {
+            Ok(i) => i,
+            Err(_) => return,
+        };
+        let response = if buffer.starts_with(HEALTHCHECK_HEADER.as_bytes()) {
+            String::from(healthcheck())
+        } else {
+            handle_request(&buffer, &pool[index])
+        };
+        println!("{}", response);
         stream.write(response.as_bytes()).unwrap();
         stream.flush().unwrap();
     }
@@ -64,8 +65,16 @@ mod handlers {
         return OK_RESPONSE;
     }
 
-    fn handle_request<'a>() -> &'a str {
-        /// TODO
-        return OK_RESPONSE;
+    fn handle_request(buffer: &[u8], backend: &Backend) -> String {
+        let mut response_buf = [0; 2048];
+        let mut stream = TcpStream::connect(backend.addr.to_string()).unwrap();
+        stream.write(buffer).unwrap();
+        stream.flush().unwrap();
+        let read_bytes = stream.read(&mut response_buf).unwrap();
+        stream.read(&mut response_buf[read_bytes..]).unwrap();
+        stream
+            .shutdown(Shutdown::Both)
+            .expect("Unable to shutdown connection");
+        return String::from_utf8_lossy(&response_buf[..]).to_string();
     }
 }

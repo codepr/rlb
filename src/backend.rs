@@ -8,7 +8,7 @@ pub enum BackendError {
 }
 
 pub struct Backend {
-    addr: String,
+    pub addr: String,
     pub alive: AtomicBool,
     pub byte_traffic: AtomicUsize,
     pub health_endpoint: Option<String>,
