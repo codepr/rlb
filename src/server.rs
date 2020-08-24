@@ -6,7 +6,6 @@ use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::Arc;
 
 // Healthcheck route /health raw bytes format
-const CRLF: &str = "\r\n\r\n";
 const HEALTHCHECK_HEADER: &str = "GET /health HTTP/1.1\r\n";
 const OK_RESPONSE: &str = "HTTP/1.1 200 OK\r\n\r\n";
 
