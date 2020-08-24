@@ -1,5 +1,6 @@
 use crate::backend::{Backend, BackendPool};
 use crate::balancing::RoundRobinBalancing;
+use crate::http::parse_request;
 use crate::threadpool::ThreadPool;
 use std::io::prelude::*;
 use std::net::{Shutdown, TcpListener, TcpStream};
@@ -65,9 +66,11 @@ mod handlers {
     }
 
     fn handle_request(buffer: &[u8], backend: &Backend) -> String {
+        let mut request = parse_request(buffer);
+        *request.headers.get_mut("Host").unwrap() = backend.addr.to_string();
         let mut response_buf = [0; 2048];
         let mut stream = TcpStream::connect(backend.addr.to_string()).unwrap();
-        stream.write(buffer).unwrap();
+        stream.write(format!("{}", request).as_bytes()).unwrap();
         stream.flush().unwrap();
         let read_bytes = stream.read(&mut response_buf).unwrap();
         stream.read(&mut response_buf[read_bytes..]).unwrap();

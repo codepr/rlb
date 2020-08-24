@@ -11,7 +11,7 @@ fn http_parse_request_test() {
 
 #[test]
 fn http_request_to_string_test() {
-    let request_str = "GET /hello HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    let request_str = "GET /hello HTTP/1.1\r\nHost: localhost\r\n\r\n\r\n";
     let request = http::Request {
         method: http::HttpMethod::Get,
         http_version: http::HttpVersion::V11,

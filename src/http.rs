@@ -57,11 +57,11 @@ impl fmt::Display for Request {
         }
         let body = match &self.body {
             Some(b) => b,
-            None => "\r\n",
+            None => "",
         };
         let repr = format!(
-            "{} {} {}\r\n{}{}",
-            self.method, self.route, self.http_version, &headers_str, body
+            "{} {} {}\r\n{}{}{}",
+            self.method, self.route, self.http_version, &headers_str, body, CRLF
         );
         write!(f, "{}", repr)
     }
