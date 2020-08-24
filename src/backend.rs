@@ -1,5 +1,11 @@
 use crate::balancing::LoadBalancing;
-use std::sync::atomic::{AtomicBool, AtomicUsize};
+use std::ops::{Index, IndexMut};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+#[derive(Debug, PartialEq)]
+pub enum BackendError {
+    NoBackendAlive,
+}
 
 pub struct Backend {
     addr: String,
@@ -47,7 +53,39 @@ impl BackendPool {
         self.backends.push(backend);
     }
 
-    pub fn next_backend(&self, mut algo: impl LoadBalancing) -> Option<usize> {
-        algo.next_backend(&self.backends)
+    pub fn next_backend(&self, mut algo: impl LoadBalancing) -> Result<usize, BackendError> {
+        let mut index = None;
+        loop {
+            if !self.has_backends_available() {
+                break;
+            }
+            if let Some(i) = algo.next_backend(&self.backends) {
+                index = Some(i);
+                break;
+            }
+        }
+        match index {
+            Some(i) => Ok(i),
+            None => Err(BackendError::NoBackendAlive),
+        }
+    }
+
+    pub fn has_backends_available(&self) -> bool {
+        self.backends
+            .iter()
+            .any(|b| b.alive.load(Ordering::Relaxed) == true)
+    }
+}
+
+impl Index<usize> for BackendPool {
+    type Output = Backend;
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.backends[index]
+    }
+}
+
+impl IndexMut<usize> for BackendPool {
+    fn index_mut(&mut self, index: usize) -> &mut Backend {
+        &mut self.backends[index]
     }
 }

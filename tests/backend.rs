@@ -1,4 +1,5 @@
-use rlb::backend::{Backend, BackendPool};
+use rlb::backend::{Backend, BackendError, BackendPool};
+use rlb::balancing::RoundRobinBalancing;
 use std::sync::atomic::Ordering;
 
 #[test]
@@ -24,4 +25,18 @@ fn backend_pool_from_list() {
         Backend::new(String::from(":5001"), None),
     ]);
     assert_eq!(pool.len(), 2);
+}
+
+#[test]
+fn backend_pool_next_backend_round_robin() {
+    let pool = BackendPool::from_backends_list(vec![
+        Backend::new(String::from(":5000"), None),
+        Backend::new(String::from(":5001"), None),
+    ]);
+    let algo = RoundRobinBalancing::new();
+    let index = pool.next_backend(algo);
+    assert_eq!(index, Err(BackendError::NoBackendAlive));
+    pool[1].alive.store(true, Ordering::Relaxed);
+    let index = pool.next_backend(RoundRobinBalancing::new());
+    assert_eq!(index, Ok(1));
 }
