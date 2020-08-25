@@ -84,6 +84,20 @@ impl HttpMessage {
     pub fn transfer_encoding(&self) -> Option<&String> {
         self.headers.get("Transfer-Encoding")
     }
+
+    pub fn route(&self) -> Option<&String> {
+        match self.method() {
+            Some(method) => match method {
+                HttpMethod::Get(route)
+                | HttpMethod::Post(route)
+                | HttpMethod::Put(route)
+                | HttpMethod::Connect(route)
+                | HttpMethod::Delete(route) => Some(route),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for HttpMessage {

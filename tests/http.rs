@@ -10,6 +10,7 @@ fn http_parse_message_test() {
     );
     assert_eq!(message.http_version(), Some(&http::HttpVersion::V11));
     assert_eq!(message.headers.contains_key("Host"), true);
+    assert_eq!(message.route(), Some(&"/hello".to_string()));
 }
 
 #[test]
