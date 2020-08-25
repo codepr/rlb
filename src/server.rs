@@ -66,7 +66,7 @@ mod handlers {
     }
 
     fn handle_request(buffer: &[u8], backend: &Backend) -> String {
-        let mut request = parse_message(buffer);
+        let mut request = parse_message(buffer).unwrap();
         *request.headers.get_mut("Host").unwrap() = backend.addr.to_string();
         let mut response_buf = [0; 2048];
         let mut stream = TcpStream::connect(backend.addr.to_string()).unwrap();

@@ -3,6 +3,11 @@ use std::fmt;
 
 const CRLF: &str = "\r\n\r\n";
 
+#[derive(Debug, PartialEq)]
+pub enum HttpError {
+    ParsingError,
+}
+
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum HttpVersion {
     V10,
@@ -75,6 +80,10 @@ impl HttpMessage {
             HttpHeader::Status(v, _) => Some(v),
         }
     }
+
+    pub fn transfer_encoding(&self) -> Option<&String> {
+        self.headers.get("Transfer-Encoding")
+    }
 }
 
 impl fmt::Display for HttpMessage {
@@ -101,7 +110,7 @@ impl fmt::Display for HttpMessage {
 ///
 /// The `parse_header` function will panic in case of missing mandatory fields
 /// like HTTP version, a supported valid method
-pub fn parse_message(buffer: &[u8]) -> HttpMessage {
+pub fn parse_message(buffer: &[u8]) -> Result<HttpMessage, HttpError> {
     let request_str = String::from_utf8_lossy(&buffer[..]);
     let content: Vec<&str> = request_str.split(CRLF).collect();
     let mut chunk = content[0].split_whitespace();
@@ -134,7 +143,7 @@ pub fn parse_message(buffer: &[u8]) -> HttpMessage {
         Some("CONNECT") => HttpHeader::Method(version, HttpMethod::Connect(route.unwrap())),
         Some("HEAD") => HttpHeader::Method(version, HttpMethod::Head),
         Some(_) => HttpHeader::Status(version, first_line.next().unwrap().to_string()),
-        None => panic!("No header {}", 1),
+        None => return Err(HttpError::ParsingError),
     };
     let mut headers: HashMap<String, String> = HashMap::new();
     let hdr_content: Vec<&str> = content[0].split("\r\n").collect();
@@ -145,9 +154,9 @@ pub fn parse_message(buffer: &[u8]) -> HttpMessage {
         headers.insert(kv[0].to_string(), kv[1].to_string());
     }
     let body = content[1].trim_matches(char::from(0)).to_string();
-    HttpMessage {
+    Ok(HttpMessage {
         header: heading,
         headers,
         body: Some(body),
-    }
+    })
 }

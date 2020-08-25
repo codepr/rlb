@@ -3,7 +3,7 @@ use rlb::http;
 #[test]
 fn http_parse_message_test() {
     let request_bytes = b"GET /hello HTTP/1.1\r\nHost: localhost\r\n\r\n";
-    let message = http::parse_message(request_bytes);
+    let message = http::parse_message(request_bytes).unwrap();
     assert_eq!(
         message.method(),
         Some(&http::HttpMethod::Get("/hello".to_string()))
