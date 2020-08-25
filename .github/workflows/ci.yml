@@ -1,0 +1,26 @@
+name: ci
+
+on: [push]
+
+jobs:
+  build_and_test:
+    name: rlb
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build release
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --all-features
+      - name: Run unit-tests
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - uses: actions-rs/cargo@v1
+        with:
+          command: test
