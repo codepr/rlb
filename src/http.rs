@@ -151,7 +151,7 @@ pub fn parse_message(buffer: &[u8]) -> Result<HttpMessage, HttpError> {
     // contains just the HTTP method and route
     for i in 1..hdr_content.len() {
         let kv: Vec<&str> = hdr_content[i].split(":").collect();
-        headers.insert(kv[0].to_string(), kv[1].to_string());
+        headers.insert(kv[0].to_string(), kv[1].trim().to_string());
     }
     let body = content[1].trim_matches(char::from(0)).to_string();
     Ok(HttpMessage {

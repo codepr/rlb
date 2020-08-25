@@ -27,6 +27,14 @@ impl Backend {
             health_endpoint,
         }
     }
+
+    pub fn set_online(&mut self) {
+        self.alive.store(true, Ordering::Relaxed);
+    }
+
+    pub fn set_offline(&mut self) {
+        self.alive.store(false, Ordering::Relaxed);
+    }
 }
 
 pub struct BackendPool {
@@ -51,6 +59,10 @@ impl BackendPool {
 
     pub fn push(&mut self, backend: Backend) {
         self.backends.push(backend);
+    }
+
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<Backend> {
+        self.backends.iter_mut()
     }
 
     pub fn next_backend(&self, mut algo: impl LoadBalancing) -> Result<usize, BackendError> {
