@@ -49,13 +49,17 @@ impl Server {
 /// The ms argument represents the of milliseconds to sleep between
 /// an healthcheck session and the subsequent.
 fn probe_backends(pool: Arc<Mutex<BackendPool>>, ms: u64) {
-    // Shadow borrow mutable by locking the mutex, impossible to to otherwise
-    let mut pool = pool.lock().unwrap();
+    // Shadow borrow mutable by locking the mutex, impossible to do otherwise
     loop {
-        for backend in pool.iter_mut() {
-            match TcpStream::connect(backend.addr.to_string()) {
-                Ok(_) => backend.set_online(),
-                Err(_) => backend.set_offline(),
+        // Add a scope to automatically drop the mutex lock before the sleep,
+        // alternatively call `drop(pool)` by hand
+        {
+            let mut pool = pool.lock().unwrap();
+            for backend in pool.iter_mut() {
+                match TcpStream::connect(backend.addr.to_string()) {
+                    Ok(_) => backend.set_online(),
+                    Err(_) => backend.set_offline(),
+                }
             }
         }
         thread::sleep(time::Duration::from_millis(ms));
@@ -67,22 +71,23 @@ mod handlers {
     use super::*;
 
     pub fn handle_connection(pool: Arc<Mutex<BackendPool>>, mut stream: TcpStream) {
-        // Shadow borrow mutable by locking the mutex, impossible to to otherwise
+        // Shadow borrow mutable by locking the mutex, impossible to do otherwise
         let pool = pool.lock().unwrap();
         let mut buffer = [0; 2048];
         stream.read(&mut buffer).unwrap();
-        println!("{}", String::from_utf8_lossy(&buffer[..]));
         let balancing_algo = RoundRobinBalancing::new();
         let index = match pool.next_backend(balancing_algo) {
             Ok(i) => i,
-            Err(_) => return,
+            Err(_) => {
+                stream.shutdown(Shutdown::Both).unwrap();
+                return;
+            }
         };
         let response = if buffer.starts_with(HEALTHCHECK_HEADER.as_bytes()) {
             String::from(healthcheck())
         } else {
             handle_request(&buffer, &pool[index])
         };
-        println!("{}", response);
         stream.write(response.as_bytes()).unwrap();
         stream.flush().unwrap();
     }
