@@ -2,6 +2,7 @@ use crate::backend::{Backend, BackendPool};
 use crate::balancing::RoundRobinBalancing;
 use crate::http::parse_message;
 use crate::threadpool::ThreadPool;
+use std::io;
 use std::io::prelude::*;
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
@@ -85,24 +86,33 @@ mod handlers {
 
     pub fn handle_connection(pool: Arc<Mutex<BackendPool>>, mut stream: TcpStream) {
         // Shadow borrow mutable by locking the mutex, impossible to do otherwise
-        let pool = pool.lock().unwrap();
+        let pool = pool.lock().expect("Unable to lock the shared pool object");
         let mut buffer = [0; BUFSIZE];
-        stream.read(&mut buffer).unwrap();
+        stream.read(&mut buffer).expect("Unable to read data");
         let balancing_algo = RoundRobinBalancing::new();
         let index = match pool.next_backend(balancing_algo) {
             Ok(i) => i,
             Err(_) => {
-                stream.shutdown(Shutdown::Both).unwrap();
+                stream
+                    .shutdown(Shutdown::Both)
+                    .expect("Unable to shutdown connection");
                 return;
             }
         };
         let response = if buffer.starts_with(HEALTHCHECK_HEADER.as_bytes()) {
             String::from(healthcheck())
         } else {
-            handle_request(&buffer, &pool[index])
+            match handle_request(&buffer, &pool[index]) {
+                Ok(r) => r,
+                Err(e) => panic!("{}", e), // XXX
+            }
         };
-        stream.write(response.as_bytes()).unwrap();
-        stream.flush().unwrap();
+        stream
+            .write(response.as_bytes())
+            .expect("Unable to write data");
+        stream
+            .flush()
+            .expect("Unable to flush stream after initial write");
     }
 
     fn healthcheck<'a>() -> &'a str {
@@ -110,23 +120,23 @@ mod handlers {
         return OK_RESPONSE;
     }
 
-    fn handle_request(buffer: &[u8], backend: &Backend) -> String {
+    fn handle_request(buffer: &[u8], backend: &Backend) -> Result<String, io::Error> {
         let mut request = parse_message(buffer).unwrap();
         *request.headers.get_mut("Host").unwrap() = backend.addr.to_string();
         let mut response_buf = [0; BUFSIZE];
-        let mut stream = TcpStream::connect(backend.addr.to_string()).unwrap();
-        stream.write(format!("{}", request).as_bytes()).unwrap();
-        stream.flush().unwrap();
-        let mut read_bytes = stream.read(&mut response_buf).unwrap();
+        let mut stream = TcpStream::connect(backend.addr.to_string())?;
+        stream.write(format!("{}", request).as_bytes())?;
+        stream.flush()?;
+        let mut read_bytes = stream.read(&mut response_buf)?;
         let response = parse_message(&response_buf).unwrap();
         if response.transfer_encoding().unwrap_or(&"".to_string()) == "chunked" {
             while response_buf[read_bytes - 5..read_bytes] != [b'0', b'\r', b'\n', b'\r', b'\n'] {
-                read_bytes += stream.read(&mut response_buf[read_bytes..]).unwrap();
+                read_bytes += stream.read(&mut response_buf[read_bytes..])?;
             }
         }
         stream
             .shutdown(Shutdown::Both)
             .expect("Unable to shutdown connection");
-        return String::from_utf8_lossy(&response_buf[..]).to_string();
+        return Ok(String::from_utf8_lossy(&response_buf[..]).to_string());
     }
 }
