@@ -10,6 +10,7 @@ use std::{thread, time};
 // Healthcheck route /health raw bytes format
 const HEALTHCHECK_HEADER: &str = "GET /health HTTP/1.1\r\n";
 const OK_RESPONSE: &str = "HTTP/1.1 200 OK\r\n\r\n";
+const BUFSIZE: usize = 2048;
 
 pub struct Server {
     addr: String,
@@ -18,6 +19,11 @@ pub struct Server {
 }
 
 impl Server {
+    /// Create a new Server.
+    ///
+    /// Arguments required are addr in the format of "addr:port", workers
+    /// as the number of threads to spawn for serving requests and pool
+    /// as the backend pool to balance the request to.
     pub fn new(addr: String, workers: usize, pool: BackendPool) -> Server {
         Server {
             addr,
@@ -26,6 +32,13 @@ impl Server {
         }
     }
 
+    /// Bind a listener to the specified address, start the healthcheck probe thread and serve all
+    /// incoming new connections.
+    ///
+    /// # Panics
+    ///
+    /// If the bind fails for some reasons and could not listen on the specified address (ex: an
+    /// already used address).
     pub fn run(&self) {
         // Start healthcheck worker
         let pool = self.balancepool.clone();
@@ -73,7 +86,7 @@ mod handlers {
     pub fn handle_connection(pool: Arc<Mutex<BackendPool>>, mut stream: TcpStream) {
         // Shadow borrow mutable by locking the mutex, impossible to do otherwise
         let pool = pool.lock().unwrap();
-        let mut buffer = [0; 2048];
+        let mut buffer = [0; BUFSIZE];
         stream.read(&mut buffer).unwrap();
         let balancing_algo = RoundRobinBalancing::new();
         let index = match pool.next_backend(balancing_algo) {
@@ -100,7 +113,7 @@ mod handlers {
     fn handle_request(buffer: &[u8], backend: &Backend) -> String {
         let mut request = parse_message(buffer).unwrap();
         *request.headers.get_mut("Host").unwrap() = backend.addr.to_string();
-        let mut response_buf = [0; 2048];
+        let mut response_buf = [0; BUFSIZE];
         let mut stream = TcpStream::connect(backend.addr.to_string()).unwrap();
         stream.write(format!("{}", request).as_bytes()).unwrap();
         stream.flush().unwrap();
