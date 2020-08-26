@@ -62,7 +62,12 @@ impl LoadBalancing for LeastTrafficBalancing {
     /// Returns an `Option<usize>` with the possible index of the next available
     /// backend, if all backends are offline (alive == false) return None.
     fn next_backend(&mut self, backends: &Vec<Backend>) -> Option<usize> {
-        let index = rand::thread_rng().gen_range(0, backends.len());
+        let index = backends
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, b)| b.byte_traffic())
+            .map(|(i, _)| i)
+            .unwrap();
         if backends[index].alive.load(Ordering::Acquire) {
             Some(index)
         } else {
