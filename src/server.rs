@@ -86,7 +86,7 @@ mod handlers {
 
     pub fn handle_connection(pool: Arc<Mutex<BackendPool>>, mut stream: TcpStream) {
         // Shadow borrow mutable by locking the mutex, impossible to do otherwise
-        let pool = pool.lock().expect("Unable to lock the shared pool object");
+        let mut pool = pool.lock().expect("Unable to lock the shared pool object");
         let mut buffer = [0; BUFSIZE];
         stream.read(&mut buffer).expect("Unable to read data");
         let balancing_algo = RoundRobinBalancing::new();
@@ -102,7 +102,7 @@ mod handlers {
         let response = if buffer.starts_with(HEALTHCHECK_HEADER.as_bytes()) {
             String::from(healthcheck())
         } else {
-            match handle_request(&buffer, &pool[index]) {
+            match handle_request(&buffer, &mut pool[index]) {
                 Ok(r) => r,
                 Err(e) => panic!("{}", e), // XXX
             }
@@ -120,13 +120,14 @@ mod handlers {
         return OK_RESPONSE;
     }
 
-    fn handle_request(buffer: &[u8], backend: &Backend) -> Result<String, io::Error> {
+    fn handle_request(buffer: &[u8], backend: &mut Backend) -> Result<String, io::Error> {
         let mut request = parse_message(buffer).unwrap();
         *request.headers.get_mut("Host").unwrap() = backend.addr.to_string();
         let mut response_buf = [0; BUFSIZE];
         let mut stream = TcpStream::connect(backend.addr.to_string())?;
-        stream.write(format!("{}", request).as_bytes())?;
+        let bytesout = stream.write(format!("{}", request).as_bytes())?;
         stream.flush()?;
+        backend.increase_byte_traffic(bytesout);
         let mut read_bytes = stream.read(&mut response_buf)?;
         let response = parse_message(&response_buf).unwrap();
         if response.transfer_encoding().unwrap_or(&"".to_string()) == "chunked" {
@@ -134,6 +135,7 @@ mod handlers {
                 read_bytes += stream.read(&mut response_buf[read_bytes..])?;
             }
         }
+        backend.increase_byte_traffic(read_bytes);
         stream
             .shutdown(Shutdown::Both)
             .expect("Unable to shutdown connection");

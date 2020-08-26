@@ -52,3 +52,21 @@ impl LoadBalancing for RandomBalancing {
         }
     }
 }
+
+pub struct LeastTrafficBalancing;
+
+impl LoadBalancing for LeastTrafficBalancing {
+    /// Find an available backend from a vector of `Backend` type objects based
+    /// on their traffic bytes count.
+    ///
+    /// Returns an `Option<usize>` with the possible index of the next available
+    /// backend, if all backends are offline (alive == false) return None.
+    fn next_backend(&mut self, backends: &Vec<Backend>) -> Option<usize> {
+        let index = rand::thread_rng().gen_range(0, backends.len());
+        if backends[index].alive.load(Ordering::Acquire) {
+            Some(index)
+        } else {
+            None
+        }
+    }
+}

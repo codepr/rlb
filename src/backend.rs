@@ -10,8 +10,8 @@ pub enum BackendError {
 pub struct Backend {
     pub addr: String,
     pub alive: AtomicBool,
-    pub byte_traffic: AtomicUsize,
-    pub health_endpoint: Option<String>,
+    byte_traffic: AtomicUsize,
+    health_endpoint: Option<String>,
 }
 
 impl Backend {
@@ -34,6 +34,18 @@ impl Backend {
 
     pub fn set_offline(&mut self) {
         self.alive.store(false, Ordering::Relaxed);
+    }
+
+    pub fn increase_byte_traffic(&mut self, bytes: usize) {
+        self.byte_traffic.store(bytes, Ordering::Relaxed);
+    }
+
+    pub fn byte_traffic(&self) -> usize {
+        self.byte_traffic.load(Ordering::Acquire)
+    }
+
+    pub fn health_endpoint(&self) -> &Option<String> {
+        &self.health_endpoint
     }
 }
 

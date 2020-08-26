@@ -6,8 +6,8 @@ use std::sync::atomic::Ordering;
 fn backend_new_test() {
     let backend = Backend::new(String::from(":5000"), Some(String::from("/health")));
     assert_eq!(backend.alive.load(Ordering::Acquire), false);
-    assert_eq!(backend.byte_traffic.load(Ordering::Acquire), 0);
-    assert_eq!(backend.health_endpoint.unwrap(), "/health");
+    assert_eq!(backend.byte_traffic(), 0);
+    assert_eq!(backend.health_endpoint(), &Some("/health".to_string()));
 }
 
 #[test]
