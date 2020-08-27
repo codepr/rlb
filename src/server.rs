@@ -1,6 +1,6 @@
 use crate::backend::{Backend, BackendPool};
 use crate::balancing::RoundRobinBalancing;
-use crate::http::parse_message;
+use crate::http::{parse_message, HttpMessage, HttpMethod, StatusCode};
 use crate::threadpool::ThreadPool;
 use std::io;
 use std::io::prelude::*;
@@ -69,9 +69,33 @@ fn probe_backends(pool: Arc<Mutex<BackendPool>>, ms: u64) {
         // alternatively call `drop(pool)` by hand
         {
             let mut pool = pool.lock().unwrap();
+            let mut buffer = [0; BUFSIZE];
             for backend in pool.iter_mut() {
                 match TcpStream::connect(backend.addr.to_string()) {
-                    Ok(_) => backend.set_online(),
+                    // Connection OK, now check if an health_endpoint is set
+                    // and try to query it
+                    Ok(mut stream) => match backend.health_endpoint() {
+                        Some(h) => {
+                            let request = HttpMessage::new(
+                                HttpMethod::Get(h.clone()),
+                                [("Host".to_string(), backend.addr.to_string())]
+                                    .iter()
+                                    .cloned()
+                                    .collect(),
+                            );
+                            stream.write(format!("{}", request).as_bytes()).unwrap();
+                            stream.flush().unwrap();
+                            stream.read(&mut buffer).unwrap();
+                            let response = parse_message(&buffer).unwrap();
+                            // Health endpoint response inspection
+                            if response.status_code() == Some(StatusCode::new(200)) {
+                                backend.set_online()
+                            } else {
+                                backend.set_offline()
+                            }
+                        }
+                        None => backend.set_online(),
+                    },
                     Err(_) => backend.set_offline(),
                 }
             }

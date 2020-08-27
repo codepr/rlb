@@ -96,6 +96,14 @@ pub struct HttpMessage {
 }
 
 impl HttpMessage {
+    pub fn new(method: HttpMethod, headers: HashMap<String, String>) -> HttpMessage {
+        HttpMessage {
+            header: HttpHeader::Method(HttpVersion::V11, method),
+            headers,
+            body: None,
+        }
+    }
+
     pub fn method(&self) -> Option<&HttpMethod> {
         match &self.header {
             HttpHeader::Method(_, m) => Some(m),
