@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::hash::Hash;
 
 const CRLF: &str = "\r\n\r\n";
 
@@ -51,7 +52,7 @@ impl StatusCode {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub enum HttpMethod {
     Get(String),
     Post(String),

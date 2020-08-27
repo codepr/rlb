@@ -1,5 +1,6 @@
 use rlb::backend::Backend;
-use rlb::balancing::{LeastTrafficBalancing, LoadBalancing, RoundRobinBalancing};
+use rlb::balancing::{HashingBalancing, LeastTrafficBalancing, LoadBalancing, RoundRobinBalancing};
+use rlb::http::{HttpMessage, HttpMethod};
 use std::sync::atomic::Ordering;
 
 #[test]
@@ -46,4 +47,29 @@ fn least_traffic_test() {
     }
     let index = rr_algo.next_backend(&backends).unwrap();
     assert_eq!(index, 1);
+}
+
+#[test]
+fn hashing_test() {
+    let request = HttpMessage::new(
+        HttpMethod::Get("/hello".to_string()),
+        [("Host".to_string(), "localhost".to_string())]
+            .iter()
+            .cloned()
+            .collect(),
+    );
+    let mut rr_algo = HashingBalancing::new(&request);
+    let backends = vec![
+        Backend::new(String::from(":5000"), None),
+        Backend::new(String::from(":5001"), None),
+        Backend::new(String::from(":5002"), None),
+        Backend::new(String::from(":5003"), None),
+    ];
+    let index = rr_algo.next_backend(&backends);
+    assert_eq!(index, None);
+    for backend in backends.iter() {
+        backend.alive.store(true, Ordering::Relaxed);
+    }
+    let index = rr_algo.next_backend(&backends).unwrap();
+    assert_eq!(index, 3);
 }

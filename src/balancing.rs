@@ -1,5 +1,8 @@
 use crate::backend::Backend;
+use crate::http::HttpMessage;
 use rand::Rng;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub trait LoadBalancing {
@@ -70,6 +73,41 @@ impl LoadBalancing for LeastTrafficBalancing {
             .min_by_key(|(_, b)| b.byte_traffic())
             .map(|(i, _)| i)
             .unwrap();
+        if backends[index].alive.load(Ordering::Acquire) {
+            Some(index)
+        } else {
+            None
+        }
+    }
+}
+
+pub struct HashingBalancing<'a> {
+    request: &'a HttpMessage,
+}
+
+impl<'a> HashingBalancing<'a> {
+    pub fn new(request: &'a HttpMessage) -> HashingBalancing<'a> {
+        HashingBalancing { request }
+    }
+}
+
+impl<'a> LoadBalancing for HashingBalancing<'a> {
+    /// Find an available backend from a vector of `Backend` type objects based
+    /// on the request hash computed.
+    ///
+    /// Returns an `Option<usize>` with the possible index of the next available
+    /// backend, if all backends are offline (alive == false) return None.
+    fn next_backend(&mut self, backends: &Vec<Backend>) -> Option<usize> {
+        // Just find the index of the backend with the min value of `bytes_traffic`
+        // field
+        let mut s = DefaultHasher::new();
+        let index = match self.request.method() {
+            Some(m) => {
+                m.hash(&mut s);
+                s.finish() as usize % backends.len()
+            }
+            None => return None,
+        };
         if backends[index].alive.load(Ordering::Acquire) {
             Some(index)
         } else {
