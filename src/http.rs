@@ -6,6 +6,7 @@ const CRLF: &str = "\r\n\r\n";
 #[derive(Debug, PartialEq)]
 pub enum HttpError {
     ParsingError,
+    InvalidStatusCode,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]
@@ -20,6 +21,28 @@ impl fmt::Display for HttpVersion {
             HttpVersion::V10 => write!(f, "HTTP/1.0"),
             HttpVersion::V11 => write!(f, "HTTP/1.1"),
         }
+    }
+}
+
+pub struct StatusCode(u16);
+
+impl StatusCode {
+    pub fn from_str(&self, str: &String) -> Result<StatusCode, HttpError> {
+        let bytes = str.as_bytes();
+        if bytes.len() < 3 {
+            return Err(HttpError::InvalidStatusCode);
+        }
+
+        let a = bytes[0].wrapping_sub(b'0') as u16;
+        let b = bytes[1].wrapping_sub(b'0') as u16;
+        let c = bytes[2].wrapping_sub(b'0') as u16;
+
+        if a == 0 || a > 5 || b > 9 || c > 9 {
+            return Err(HttpError::InvalidStatusCode);
+        }
+
+        let status = (a * 100) + (b * 10) + c;
+        Ok(StatusCode(status))
     }
 }
 

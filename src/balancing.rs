@@ -62,6 +62,8 @@ impl LoadBalancing for LeastTrafficBalancing {
     /// Returns an `Option<usize>` with the possible index of the next available
     /// backend, if all backends are offline (alive == false) return None.
     fn next_backend(&mut self, backends: &Vec<Backend>) -> Option<usize> {
+        // Just find the index of the backend with the min value of `bytes_traffic`
+        // field
         let index = backends
             .iter()
             .enumerate()
