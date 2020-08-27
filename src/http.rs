@@ -24,10 +24,15 @@ impl fmt::Display for HttpVersion {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub struct StatusCode(u16);
 
 impl StatusCode {
-    pub fn from_str(&self, str: &String) -> Result<StatusCode, HttpError> {
+    pub fn new(code: u16) -> StatusCode {
+        StatusCode(code)
+    }
+
+    pub fn from_str(str: &String) -> Result<StatusCode, HttpError> {
         let bytes = str.as_bytes();
         if bytes.len() < 3 {
             return Err(HttpError::InvalidStatusCode);
@@ -117,6 +122,16 @@ impl HttpMessage {
                 | HttpMethod::Connect(route)
                 | HttpMethod::Delete(route) => Some(route),
                 _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    pub fn status_code(&self) -> Option<StatusCode> {
+        match &self.header {
+            HttpHeader::Status(_, s) => match StatusCode::from_str(&s) {
+                Ok(r) => Some(r),
+                Err(_) => None,
             },
             _ => None,
         }

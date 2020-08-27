@@ -30,3 +30,10 @@ fn http_request_to_string_test() {
     };
     assert_eq!(format!("{}", message), request_str);
 }
+
+#[test]
+fn http_parse_response_test() {
+    let request_bytes = b"HTTP/1.1 200 OK\r\n\r\n";
+    let message = http::parse_message(request_bytes).unwrap();
+    assert_eq!(message.status_code(), Some(http::StatusCode::new(200)));
+}
