@@ -1,5 +1,5 @@
 use crate::backend::{Backend, BackendPool};
-use crate::balancing::RoundRobinBalancing;
+use crate::balancing::{LoadBalancing, RoundRobinBalancing};
 use crate::http::{parse_message, HttpMessage, HttpMethod, StatusCode};
 use crate::threadpool::ThreadPool;
 use std::io;
@@ -47,11 +47,13 @@ impl Server {
             probe_backends(pool, 5000);
         });
         let listener = TcpListener::bind(self.addr.to_string()).unwrap();
+        let balancing_algo = Arc::new(Mutex::new(RoundRobinBalancing::new()));
         for stream in listener.incoming() {
             let stream = stream.unwrap();
             let pool = self.balancepool.clone();
+            let balancing_algo = balancing_algo.clone();
             self.threadpool.execute(|| {
-                handlers::handle_connection(pool, stream);
+                handlers::handle_connection(pool, balancing_algo, stream);
             });
         }
     }
@@ -108,12 +110,18 @@ mod handlers {
 
     use super::*;
 
-    pub fn handle_connection(pool: Arc<Mutex<BackendPool>>, mut stream: TcpStream) {
+    pub fn handle_connection(
+        pool: Arc<Mutex<BackendPool>>,
+        balancing_algo: Arc<Mutex<impl LoadBalancing>>,
+        mut stream: TcpStream,
+    ) {
         // Shadow borrow mutable by locking the mutex, impossible to do otherwise
         let mut pool = pool.lock().expect("Unable to lock the shared pool object");
         let mut buffer = [0; BUFSIZE];
         stream.read(&mut buffer).expect("Unable to read data");
-        let balancing_algo = RoundRobinBalancing::new();
+        // let mut balancing_algo = balancing_algo
+        //     .lock()
+        //     .expect("Unable to lock the shared load-balancing object");
         let index = match pool.next_backend(balancing_algo) {
             Ok(i) => i,
             Err(_) => {

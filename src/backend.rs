@@ -1,12 +1,14 @@
 use crate::balancing::LoadBalancing;
 use std::ops::{Index, IndexMut};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, PartialEq)]
 pub enum BackendError {
     NoBackendAlive,
 }
 
+#[derive(Debug)]
 pub struct Backend {
     pub addr: String,
     pub alive: AtomicBool,
@@ -77,8 +79,14 @@ impl BackendPool {
         self.backends.iter_mut()
     }
 
-    pub fn next_backend(&self, mut algo: impl LoadBalancing) -> Result<usize, BackendError> {
+    pub fn next_backend(
+        &self,
+        algo: Arc<Mutex<impl LoadBalancing>>,
+    ) -> Result<usize, BackendError> {
         let mut index = None;
+        let mut algo = algo
+            .lock()
+            .expect("Unable to lock shared balancing algorithm");
         // Loop until an available backend is found, checking at every run that
         // there's at least one alive backend to avoid looping forever
         loop {
