@@ -13,6 +13,67 @@ use tokio::time::{self, delay_for, Duration};
 // Healthcheck route /health raw bytes format
 const BUFSIZE: usize = 2048;
 
+/// Server listener state. Created in the `run` call. It includes a `run` method
+/// which performs the TCP listening and initialization of per-connection state.
+#[derive(Debug)]
+struct Server<T: LoadBalancing> {
+    listener: TcpListener,
+    pool: Arc<Mutex<BackendPool<T>>>,
+}
+
+impl<T> Server<T>
+where
+    T: LoadBalancing + Send + Sync + 'static,
+{
+    /// Create a new Server and run.
+    pub async fn run(&mut self) -> AsyncResult<()> {
+        let mut probe_handler = Handler {
+            pool: self.pool.clone(),
+        };
+        tokio::spawn(async move {
+            if let Err(e) = probe_handler.probe_backends().await {
+                println!("Error {}", e);
+            }
+        });
+        loop {
+            let handler = Handler {
+                pool: self.pool.clone(),
+            };
+            let stream = self.accept().await?;
+            tokio::spawn(async move {
+                if let Err(e) = handler.handle_connection(stream).await {
+                    println!("Error {}", e);
+                };
+            });
+        }
+    }
+
+    async fn accept(&mut self) -> AsyncResult<TcpStream> {
+        let mut backoff = 1;
+
+        // Try to accept a few times
+        loop {
+            // Perform the accept operation. If a socket is successfully
+            // accepted, return it. Otherwise, save the error.
+            match self.listener.accept().await {
+                Ok((socket, _)) => return Ok(socket),
+                Err(err) => {
+                    if backoff > 64 {
+                        // Accept has failed too many times. Return the error.
+                        return Err(err.into());
+                    }
+                }
+            }
+
+            // Pause execution until the back off period elapses.
+            time::delay_for(Duration::from_secs(backoff)).await;
+
+            // Double the back off
+            backoff *= 2;
+        }
+    }
+}
+
 #[derive(Clone)]
 struct Handler<T: LoadBalancing> {
     pool: Arc<Mutex<BackendPool<T>>>,
@@ -112,64 +173,6 @@ where
         backend.increase_byte_traffic(read_bytes);
         stream.shutdown(Shutdown::Both)?;
         return Ok(String::from_utf8_lossy(&response_buf[..]).to_string());
-    }
-}
-
-struct Server<T: LoadBalancing> {
-    listener: TcpListener,
-    pool: Arc<Mutex<BackendPool<T>>>,
-}
-
-impl<T> Server<T>
-where
-    T: LoadBalancing + Send + Sync + 'static,
-{
-    /// Create a new Server and run.
-    pub async fn run(&mut self) -> AsyncResult<()> {
-        let mut probe_handler = Handler {
-            pool: self.pool.clone(),
-        };
-        tokio::spawn(async move {
-            if let Err(e) = probe_handler.probe_backends().await {
-                println!("Error {}", e);
-            }
-        });
-        loop {
-            let handler = Handler {
-                pool: self.pool.clone(),
-            };
-            let stream = self.accept().await?;
-            tokio::spawn(async move {
-                if let Err(e) = handler.handle_connection(stream).await {
-                    println!("Error {}", e);
-                };
-            });
-        }
-    }
-
-    async fn accept(&mut self) -> AsyncResult<TcpStream> {
-        let mut backoff = 1;
-
-        // Try to accept a few times
-        loop {
-            // Perform the accept operation. If a socket is successfully
-            // accepted, return it. Otherwise, save the error.
-            match self.listener.accept().await {
-                Ok((socket, _)) => return Ok(socket),
-                Err(err) => {
-                    if backoff > 64 {
-                        // Accept has failed too many times. Return the error.
-                        return Err(err.into());
-                    }
-                }
-            }
-
-            // Pause execution until the back off period elapses.
-            time::delay_for(Duration::from_secs(backoff)).await;
-
-            // Double the back off
-            backoff *= 2;
-        }
     }
 }
 

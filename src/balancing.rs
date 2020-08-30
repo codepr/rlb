@@ -15,6 +15,8 @@ pub enum BalancingAlgorithm {
     Random,
     #[serde(rename(deserialize = "least-traffic"))]
     LeastTraffic,
+    #[serde(rename(deserialize = "hashing"))]
+    Hashing,
 }
 
 impl BalancingAlgorithm {
