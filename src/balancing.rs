@@ -1,9 +1,27 @@
 use crate::backend::Backend;
 use crate::http::HttpMessage;
 use rand::Rng;
+use serde::Deserialize;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// Supported balancing algorithm types
+#[derive(Debug, PartialEq, Deserialize)]
+pub enum BalancingAlgorithm {
+    #[serde(rename(deserialize = "round-robin"))]
+    RoundRobin,
+    #[serde(rename(deserialize = "random"))]
+    Random,
+    #[serde(rename(deserialize = "least-traffic"))]
+    LeastTraffic,
+}
+
+impl BalancingAlgorithm {
+    pub fn round_robin() -> Self {
+        BalancingAlgorithm::RoundRobin
+    }
+}
 
 pub trait LoadBalancing {
     fn next_backend(&mut self, backends: &Vec<Backend>) -> Option<usize>;

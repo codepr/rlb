@@ -5,7 +5,7 @@ use rlb::Config;
 fn main() {
     let config = Config::from_file("config.yaml").expect("Error reading config.yaml");
     let backends = config
-        .backends
+        .backends()
         .iter()
         .map(|b| Backend::new(b.to_string(), None))
         .collect();
