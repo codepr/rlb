@@ -23,6 +23,18 @@ impl BalancingAlgorithm {
     pub fn round_robin() -> Self {
         BalancingAlgorithm::RoundRobin
     }
+
+    pub fn random() -> Self {
+        BalancingAlgorithm::Random
+    }
+
+    pub fn least_traffic() -> Self {
+        BalancingAlgorithm::LeastTraffic
+    }
+
+    pub fn hashing() -> Self {
+        BalancingAlgorithm::Hashing
+    }
 }
 
 pub trait LoadBalancing {
