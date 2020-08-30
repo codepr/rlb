@@ -13,7 +13,7 @@ fn backend_new_test() {
 
 #[test]
 fn backend_pool_len() {
-    let mut pool = BackendPool::new();
+    let mut pool = BackendPool::new(RoundRobinBalancing::new());
     assert_eq!(pool.len(), 0);
     pool.push(Backend::new(String::from(":5000"), None));
     assert_eq!(pool.len(), 1);
@@ -21,23 +21,28 @@ fn backend_pool_len() {
 
 #[test]
 fn backend_pool_from_list() {
-    let pool = BackendPool::from_backends_list(vec![
-        Backend::new(String::from(":5000"), None),
-        Backend::new(String::from(":5001"), None),
-    ]);
+    let pool = BackendPool::from_backends_list(
+        vec![
+            Backend::new(String::from(":5000"), None),
+            Backend::new(String::from(":5001"), None),
+        ],
+        RoundRobinBalancing::new(),
+    );
     assert_eq!(pool.len(), 2);
 }
 
 #[test]
 fn backend_pool_next_backend_round_robin() {
-    let pool = BackendPool::from_backends_list(vec![
-        Backend::new(String::from(":5000"), None),
-        Backend::new(String::from(":5001"), None),
-    ]);
-    let algo = Arc::new(Mutex::new(RoundRobinBalancing::new()));
-    let index = pool.next_backend(algo);
+    let mut pool = BackendPool::from_backends_list(
+        vec![
+            Backend::new(String::from(":5000"), None),
+            Backend::new(String::from(":5001"), None),
+        ],
+        RoundRobinBalancing::new(),
+    );
+    let index = pool.next_backend();
     assert_eq!(index, Err(BackendError::NoBackendAlive));
     pool[1].alive.store(true, Ordering::Relaxed);
-    let index = pool.next_backend(Arc::new(Mutex::new(RoundRobinBalancing::new())));
+    let index = pool.next_backend();
     assert_eq!(index, Ok(1));
 }
