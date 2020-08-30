@@ -1,176 +1,196 @@
 use crate::backend::{Backend, BackendPool};
-use crate::balancing::{LoadBalancing, RoundRobinBalancing};
+use crate::balancing::LoadBalancing;
 use crate::http::{parse_message, HttpMessage, HttpMethod, StatusCode};
-use crate::threadpool::ThreadPool;
-use std::io;
-use std::io::prelude::*;
-use std::net::{Shutdown, TcpListener, TcpStream};
-use std::sync::{Arc, Mutex};
-use std::{thread, time};
+use crate::AsyncResult;
+use std::net::Shutdown;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::prelude::*;
+use tokio::sync::Mutex;
+use tokio::time::{self, delay_for, Duration};
 
 // Healthcheck route /health raw bytes format
-const HEALTHCHECK_HEADER: &str = "GET /health HTTP/1.1\r\n";
-const OK_RESPONSE: &str = "HTTP/1.1 200 OK\r\n\r\n";
 const BUFSIZE: usize = 2048;
 
-pub struct Server {
-    addr: String,
-    threadpool: ThreadPool,
-    balancepool: Arc<Mutex<BackendPool>>,
+#[derive(Clone)]
+struct Handler<T: LoadBalancing> {
+    pool: Arc<Mutex<BackendPool<T>>>,
 }
 
-impl Server {
-    /// Create a new Server.
+impl<T> Handler<T>
+where
+    T: LoadBalancing + Send + Sync + 'static,
+{
+    /// Try to connect to all registered backends in the balance pool.
     ///
-    /// Arguments required are addr in the format of "addr:port", workers
-    /// as the number of threads to spawn for serving requests and pool
-    /// as the backend pool to balance the request to.
-    pub fn new(addr: String, workers: usize, pool: BackendPool) -> Server {
-        Server {
-            addr,
-            threadpool: ThreadPool::new(workers),
-            balancepool: Arc::new(Mutex::new(pool)),
-        }
-    }
-
-    /// Bind a listener to the specified address, start the healthcheck probe thread and serve all
-    /// incoming new connections.
-    ///
-    /// # Panics
-    ///
-    /// If the bind fails for some reasons and could not listen on the specified address (ex: an
-    /// already used address).
-    pub fn run(&self) {
-        // Start healthcheck worker
-        let pool = self.balancepool.clone();
-        self.threadpool.execute(|| {
-            probe_backends(pool, 5000);
-        });
-        let listener = TcpListener::bind(self.addr.to_string()).unwrap();
-        let balancing_algo = Arc::new(Mutex::new(RoundRobinBalancing::new()));
-        for stream in listener.incoming() {
-            let stream = stream.unwrap();
-            let pool = self.balancepool.clone();
-            let balancing_algo = balancing_algo.clone();
-            self.threadpool.execute(|| {
-                handlers::handle_connection(pool, balancing_algo, stream);
-            });
-        }
-    }
-}
-
-/// Try to connect to all registered backends in the balance pool.
-///
-/// The pool is the a shared mutable pointer guarded by a mutex
-/// The ms argument represents the of milliseconds to sleep between
-/// an healthcheck session and the subsequent.
-fn probe_backends(pool: Arc<Mutex<BackendPool>>, ms: u64) {
-    // Shadow borrow mutable by locking the mutex, impossible to do otherwise
-    loop {
-        // Add a scope to automatically drop the mutex lock before the sleep,
-        // alternatively call `drop(pool)` by hand
-        {
-            let mut pool = pool.lock().unwrap();
-            let mut buffer = [0; BUFSIZE];
-            for backend in pool.iter_mut() {
-                match TcpStream::connect(backend.addr.to_string()) {
-                    // Connection OK, now check if an health_endpoint is set
-                    // and try to query it
-                    Ok(mut stream) => match backend.health_endpoint() {
-                        Some(h) => {
-                            let request = HttpMessage::new(
-                                HttpMethod::Get(h.clone()),
-                                [("Host".to_string(), backend.addr.to_string())]
-                                    .iter()
-                                    .cloned()
-                                    .collect(),
-                            );
-                            stream.write(format!("{}", request).as_bytes()).unwrap();
-                            stream.flush().unwrap();
-                            stream.read(&mut buffer).unwrap();
-                            let response = parse_message(&buffer).unwrap();
-                            // Health endpoint response inspection
-                            if response.status_code() == Some(StatusCode::new(200)) {
-                                backend.set_online()
-                            } else {
-                                backend.set_offline()
+    /// The pool is the a shared mutable pointer guarded by a mutex
+    /// The ms argument represents the of milliseconds to sleep between
+    /// an healthcheck session and the subsequent.
+    async fn probe_backends(&mut self) -> AsyncResult<()> {
+        loop {
+            // Add a scope to automatically drop the mutex lock before the sleep,
+            // alternatively call `drop(pool)` by hand
+            {
+                let mut pool = self.pool.lock().await;
+                let mut buffer = [0; BUFSIZE];
+                for backend in pool.iter_mut() {
+                    let backend_addr: SocketAddr = backend
+                        .addr
+                        .parse()
+                        .expect("Unable to parse backend address");
+                    match TcpStream::connect(&backend_addr).await {
+                        // Connection OK, now check if an health_endpoint is set
+                        // and try to query it
+                        Ok(mut stream) => match backend.health_endpoint() {
+                            Some(h) => {
+                                let request = HttpMessage::new(
+                                    HttpMethod::Get(h.clone()),
+                                    [("Host".to_string(), backend.addr.to_string())]
+                                        .iter()
+                                        .cloned()
+                                        .collect(),
+                                );
+                                stream.write_all(format!("{}", request).as_bytes()).await?;
+                                let n = stream.peek(&mut buffer).await?;
+                                stream.read(&mut buffer[..n]).await?;
+                                let response = parse_message(&buffer).unwrap();
+                                // Health endpoint response inspection
+                                if response.status_code() == Some(StatusCode::new(200)) {
+                                    backend.set_online()
+                                } else {
+                                    backend.set_offline()
+                                }
                             }
-                        }
-                        None => backend.set_online(),
-                    },
-                    Err(_) => backend.set_offline(),
+                            None => backend.set_online(),
+                        },
+                        Err(_) => backend.set_offline(),
+                    }
                 }
             }
+            delay_for(Duration::from_millis(5000)).await;
         }
-        thread::sleep(time::Duration::from_millis(ms));
     }
-}
 
-mod handlers {
-
-    use super::*;
-
-    pub fn handle_connection(
-        pool: Arc<Mutex<BackendPool>>,
-        balancing_algo: Arc<Mutex<impl LoadBalancing>>,
-        mut stream: TcpStream,
-    ) {
-        // Shadow borrow mutable by locking the mutex, impossible to do otherwise
-        let mut pool = pool.lock().expect("Unable to lock the shared pool object");
+    async fn handle_connection(&self, mut stream: TcpStream) -> AsyncResult<()> {
+        let mut pool = self.pool.lock().await;
         let mut buffer = [0; BUFSIZE];
-        stream.read(&mut buffer).expect("Unable to read data");
-        // let mut balancing_algo = balancing_algo
-        //     .lock()
-        //     .expect("Unable to lock the shared load-balancing object");
-        let index = match pool.next_backend(balancing_algo) {
+        let n = stream.peek(&mut buffer).await?;
+        stream.read(&mut buffer[..n]).await?;
+        let index = match pool.next_backend() {
             Ok(i) => i,
-            Err(_) => {
-                stream
-                    .shutdown(Shutdown::Both)
-                    .expect("Unable to shutdown connection");
-                return;
+            Err(e) => {
+                stream.shutdown(Shutdown::Both)?;
+                return Err(Box::new(e));
             }
         };
-        let response = if buffer.starts_with(HEALTHCHECK_HEADER.as_bytes()) {
-            String::from(healthcheck())
-        } else {
-            match handle_request(&buffer, &mut pool[index]) {
-                Ok(r) => r,
-                Err(e) => panic!("{}", e), // XXX
-            }
-        };
-        stream
-            .write(response.as_bytes())
-            .expect("Unable to write data");
-        stream
-            .flush()
-            .expect("Unable to flush stream after initial write");
+        let response = self.handle_request(&buffer, &mut pool[index]).await?;
+        stream.write_all(response.as_bytes()).await?;
+        Ok(())
     }
 
-    fn healthcheck<'a>() -> &'a str {
-        /// TODO
-        return OK_RESPONSE;
-    }
-
-    fn handle_request(buffer: &[u8], backend: &mut Backend) -> Result<String, io::Error> {
+    async fn handle_request(&self, buffer: &[u8], backend: &mut Backend) -> AsyncResult<String> {
+        let backend_addr: SocketAddr = backend
+            .addr
+            .parse()
+            .expect("Unable to parse backend address");
         let mut request = parse_message(buffer).unwrap();
         *request.headers.get_mut("Host").unwrap() = backend.addr.to_string();
         let mut response_buf = [0; BUFSIZE];
-        let mut stream = TcpStream::connect(backend.addr.to_string())?;
-        let bytesout = stream.write(format!("{}", request).as_bytes())?;
-        stream.flush()?;
+        let mut stream = TcpStream::connect(&backend_addr).await?;
+        let bytesout = stream.write(format!("{}", request).as_bytes()).await?;
         backend.increase_byte_traffic(bytesout);
-        let mut read_bytes = stream.read(&mut response_buf)?;
+        let mut read_bytes = stream.peek(&mut response_buf).await?;
+        stream.read(&mut response_buf[..read_bytes]).await?;
         let response = parse_message(&response_buf).unwrap();
         if response.transfer_encoding().unwrap_or(&"".to_string()) == "chunked" {
             while response_buf[read_bytes - 5..read_bytes] != [b'0', b'\r', b'\n', b'\r', b'\n'] {
-                read_bytes += stream.read(&mut response_buf[read_bytes..])?;
+                read_bytes += stream.peek(&mut response_buf[..read_bytes]).await?;
+                stream.read(&mut response_buf[read_bytes..]).await?;
             }
         }
         backend.increase_byte_traffic(read_bytes);
-        stream
-            .shutdown(Shutdown::Both)
-            .expect("Unable to shutdown connection");
+        stream.shutdown(Shutdown::Both)?;
         return Ok(String::from_utf8_lossy(&response_buf[..]).to_string());
     }
+}
+
+struct Server<T: LoadBalancing> {
+    listener: TcpListener,
+    pool: Arc<Mutex<BackendPool<T>>>,
+}
+
+impl<T> Server<T>
+where
+    T: LoadBalancing + Send + Sync + 'static,
+{
+    /// Create a new Server and run.
+    pub async fn run(&mut self) -> AsyncResult<()> {
+        let mut probe_handler = Handler {
+            pool: self.pool.clone(),
+        };
+        tokio::spawn(async move {
+            if let Err(e) = probe_handler.probe_backends().await {
+                println!("Error {}", e);
+            }
+        });
+        loop {
+            let handler = Handler {
+                pool: self.pool.clone(),
+            };
+            let stream = self.accept().await?;
+            tokio::spawn(async move {
+                if let Err(e) = handler.handle_connection(stream).await {
+                    println!("Error {}", e);
+                };
+            });
+        }
+    }
+
+    async fn accept(&mut self) -> AsyncResult<TcpStream> {
+        let mut backoff = 1;
+
+        // Try to accept a few times
+        loop {
+            // Perform the accept operation. If a socket is successfully
+            // accepted, return it. Otherwise, save the error.
+            match self.listener.accept().await {
+                Ok((socket, _)) => return Ok(socket),
+                Err(err) => {
+                    if backoff > 64 {
+                        // Accept has failed too many times. Return the error.
+                        return Err(err.into());
+                    }
+                }
+            }
+
+            // Pause execution until the back off period elapses.
+            time::delay_for(Duration::from_secs(backoff)).await;
+
+            // Double the back off
+            backoff *= 2;
+        }
+    }
+}
+
+/// Run a tokio async server, accepts and handle new connections asynchronously.
+///
+/// Arguments are listener, a bound `TcpListener` and pool a `BackendPool` with type
+/// `LoadBalancing`
+pub async fn run<T: LoadBalancing + Send + Sync + 'static>(
+    listener: TcpListener,
+    pool: BackendPool<T>,
+) -> AsyncResult<()> {
+    let mut server = Server {
+        listener,
+        pool: Arc::new(Mutex::new(pool)),
+    };
+    tokio::select! {
+        res = server.run() => {
+            if let Err(err) = res {
+                println!("Failed to accept: {}", err);
+            }
+        },
+    };
+    Ok(())
 }

@@ -1,11 +1,24 @@
 use crate::balancing::LoadBalancing;
+use std::error::Error;
+use std::fmt;
 use std::ops::{Index, IndexMut};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
 
 #[derive(Debug, PartialEq)]
 pub enum BackendError {
     NoBackendAlive,
+}
+
+impl fmt::Display for BackendError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Backend error")
+    }
+}
+
+impl Error for BackendError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(self)
+    }
 }
 
 #[derive(Debug)]
@@ -51,15 +64,17 @@ impl Backend {
     }
 }
 
-pub struct BackendPool {
+pub struct BackendPool<T: LoadBalancing> {
     backends: Vec<Backend>,
+    balancing_algo: T,
 }
 
-impl BackendPool {
+impl<T: LoadBalancing> BackendPool<T> {
     /// Create a new BackendPool
-    pub fn new() -> BackendPool {
+    pub fn new(balancing_algo: T) -> BackendPool<T> {
         BackendPool {
             backends: Vec::new(),
+            balancing_algo,
         }
     }
 
@@ -67,8 +82,11 @@ impl BackendPool {
         self.backends.len()
     }
 
-    pub fn from_backends_list(backends: Vec<Backend>) -> BackendPool {
-        BackendPool { backends }
+    pub fn from_backends_list(backends: Vec<Backend>, balancing_algo: T) -> BackendPool<T> {
+        BackendPool {
+            backends,
+            balancing_algo,
+        }
     }
 
     pub fn push(&mut self, backend: Backend) {
@@ -79,21 +97,15 @@ impl BackendPool {
         self.backends.iter_mut()
     }
 
-    pub fn next_backend(
-        &self,
-        algo: Arc<Mutex<impl LoadBalancing>>,
-    ) -> Result<usize, BackendError> {
+    pub fn next_backend(&mut self) -> Result<usize, BackendError> {
         let mut index = None;
-        let mut algo = algo
-            .lock()
-            .expect("Unable to lock shared balancing algorithm");
         // Loop until an available backend is found, checking at every run that
         // there's at least one alive backend to avoid looping forever
         loop {
             if !self.has_backends_available() {
                 break;
             }
-            if let Some(i) = algo.next_backend(&self.backends) {
+            if let Some(i) = self.balancing_algo.next_backend(&self.backends) {
                 index = Some(i);
                 break;
             }
@@ -111,14 +123,14 @@ impl BackendPool {
     }
 }
 
-impl Index<usize> for BackendPool {
+impl<T: LoadBalancing> Index<usize> for BackendPool<T> {
     type Output = Backend;
     fn index(&self, index: usize) -> &Self::Output {
         &self.backends[index]
     }
 }
 
-impl IndexMut<usize> for BackendPool {
+impl<T: LoadBalancing> IndexMut<usize> for BackendPool<T> {
     fn index_mut(&mut self, index: usize) -> &mut Backend {
         &mut self.backends[index]
     }

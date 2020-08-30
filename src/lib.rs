@@ -2,7 +2,6 @@ pub mod backend;
 pub mod balancing;
 pub mod http;
 pub mod server;
-pub mod threadpool;
 use serde::Deserialize;
 use serde_yaml;
 
@@ -29,3 +28,5 @@ impl Config {
         self.timeout
     }
 }
+
+pub type AsyncResult<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
