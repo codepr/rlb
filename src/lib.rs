@@ -2,8 +2,36 @@ pub mod backend;
 pub mod balancing;
 pub mod http;
 pub mod server;
+use chrono::Local;
+use log::{Level, LevelFilter, Metadata, Record, SetLoggerError};
 use serde::Deserialize;
 use serde_yaml;
+
+struct SimpleLogger;
+
+impl log::Log for SimpleLogger {
+    fn enabled(&self, metadata: &Metadata) -> bool {
+        metadata.level() <= Level::Info
+    }
+
+    fn log(&self, record: &Record) {
+        if self.enabled(record.metadata()) {
+            println!(
+                "{} - {}",
+                Local::now().format("%Y-%m-%dT%H:%M:%S"),
+                record.args()
+            );
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+static LOGGER: SimpleLogger = SimpleLogger;
+
+pub fn init_logging() -> Result<(), SetLoggerError> {
+    log::set_logger(&LOGGER).map(|()| log::set_max_level(LevelFilter::Info))
+}
 
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct Config {

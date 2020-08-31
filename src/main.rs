@@ -1,3 +1,4 @@
+use log::info;
 use rlb::backend::{Backend, BackendPool};
 use rlb::balancing::get_balancer;
 use rlb::server;
@@ -6,6 +7,7 @@ use tokio::net::TcpListener;
 
 #[tokio::main]
 pub async fn main() -> rlb::AsyncResult<()> {
+    rlb::init_logging().expect("Can't enable logging");
     let config = Config::from_file("config.yaml").expect("Error reading config.yaml");
     let backends = config
         .backends()
@@ -18,6 +20,7 @@ pub async fn main() -> rlb::AsyncResult<()> {
 
         // Bind a TCP listener
         let listener = TcpListener::bind("127.0.0.1:6767").await?;
+        info!("Listening on :6767");
         server::run(listener, pool).await?
     }
     Ok(())
