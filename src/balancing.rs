@@ -1,3 +1,7 @@
+/// Balancing algorithms between a vector of backend items.
+///
+/// Provides a public trait `LoadBalancing`, every different balancing algorithm implements this
+/// trait exposing `next_backend` method.
 use crate::backend::Backend;
 use crate::http::HttpMessage;
 use rand::Rng;
@@ -41,6 +45,12 @@ impl BalancingAlgorithm {
     }
 }
 
+/// Factory function, used to create the `BalancingAlgorithm` based on the requested type
+///
+/// # Errors
+///
+/// Return an `Err(BalancingAlgorithm::UnknownAlgorithm)` in case of an unknown algorithm passed as
+/// argument.
 pub fn get_balancer(
     balancing_algo: &BalancingAlgorithm,
 ) -> Result<Box<dyn LoadBalancing + Send + Sync>, BalancingError> {
@@ -52,7 +62,12 @@ pub fn get_balancer(
     }
 }
 
+/// Generic balancing algorithm trait. Exposes only one method `next_backend` which take a
+/// reference to a `Vec<Backend>` type.
 pub trait LoadBalancing {
+    /// Return the first valid backend index in the vector according to the heuristic the algorithm
+    /// represents. Requires `mut self` as some algorithms need to store a state that must be
+    /// updated at every call.
     fn next_backend(&mut self, backends: &Vec<Backend>) -> Option<usize>;
 }
 

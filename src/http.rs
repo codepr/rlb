@@ -1,3 +1,7 @@
+/// HTTP parsing.
+///
+/// Provides a `parse_message` function to parse incoming requests or responses from
+/// a stream.
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;
@@ -33,6 +37,12 @@ impl StatusCode {
         StatusCode(code)
     }
 
+    /// Parse status code from the first 3 bytes of the header string.
+    ///
+    /// # Errors
+    ///
+    /// Return an `Err` in case of a header line below 3 bytes length or if the code result non
+    /// valid (e.g below 100 or over 599, according to the HTTP status codes)
     pub fn from_str(str: &String) -> Result<StatusCode, HttpError> {
         let bytes = str.as_bytes();
         if bytes.len() < 3 {
@@ -105,12 +115,15 @@ impl HttpMessage {
         }
     }
 
+    /// Return the method of the request or `None` if it's an HTTP response
     pub fn method(&self) -> Option<&HttpMethod> {
         match &self.header {
             HttpHeader::Method(_, m) => Some(m),
             HttpHeader::Status(_, _) => None,
         }
     }
+
+    /// Return the HTTP version of the request or `None` if it's an HTTP response
     pub fn http_version(&self) -> Option<&HttpVersion> {
         match &self.header {
             HttpHeader::Method(v, _) => Some(v),
@@ -118,10 +131,13 @@ impl HttpMessage {
         }
     }
 
+    /// Return the `Transfer-Encoding` value of the response or `None` if it's an HTTP response or
+    /// the value is not found.
     pub fn transfer_encoding(&self) -> Option<&String> {
         self.headers.get("Transfer-Encoding")
     }
 
+    /// Return the route of the request or `None` if it's a response or an unknown request type.
     pub fn route(&self) -> Option<&String> {
         match self.method() {
             Some(method) => match method {
@@ -136,6 +152,7 @@ impl HttpMessage {
         }
     }
 
+    /// Return the status code of the response or `None` if it's a request.
     pub fn status_code(&self) -> Option<StatusCode> {
         match &self.header {
             HttpHeader::Status(_, s) => match StatusCode::from_str(&s) {
@@ -167,6 +184,11 @@ impl fmt::Display for HttpMessage {
 /// Receive a buffer argument representing a bytearray received from an
 /// open stream.
 ///
+/// # Errors
+///
+/// Return an `Err(HttpError::ParsingError)` in case of an error parsing the header of the request,
+/// this can happen for example if an unknown method appears on the header line.
+///
 /// # Panics
 ///
 /// The `parse_header` function will panic in case of missing mandatory fields
@@ -176,6 +198,13 @@ pub fn parse_message(buffer: &[u8]) -> Result<HttpMessage, HttpError> {
     let content: Vec<&str> = request_str.split(CRLF).collect();
     let mut chunk = content[0].split_whitespace();
     let mut first_line = content[0].split_whitespace();
+
+    // Not really solid but separate version and route based on the start of the header line:
+    //
+    // - If the first line starts with HTTP it's an HTTP response so the HTTP version is the first
+    // token we must extract and no route are provided;
+    // - Otherwise the version is generally the third token ot be parsed, following the route one
+
     let (version, route) = if content[0].starts_with("HTTP") {
         (
             if content[0].starts_with("HTTP/1.0") {
@@ -196,6 +225,8 @@ pub fn parse_message(buffer: &[u8]) -> Result<HttpMessage, HttpError> {
             Some(r),
         )
     };
+
+    // Parse the method (verb of the request)
     let heading = match first_line.next() {
         Some("GET") => HttpHeader::Method(version, HttpMethod::Get(route.unwrap())),
         Some("POST") => HttpHeader::Method(version, HttpMethod::Post(route.unwrap())),
@@ -208,6 +239,7 @@ pub fn parse_message(buffer: &[u8]) -> Result<HttpMessage, HttpError> {
     };
     let mut headers: HashMap<String, String> = HashMap::new();
     let hdr_content: Vec<&str> = content[0].split("\r\n").collect();
+
     // Populate headers map, starting from 1 as index to skip the first line which
     // contains just the HTTP method and route
     for i in 1..hdr_content.len() {
