@@ -27,6 +27,10 @@ impl Config {
     pub fn timeout(&self) -> i64 {
         self.timeout
     }
+
+    pub fn balancing_algorithm(&self) -> &balancing::BalancingAlgorithm {
+        &self.balancing
+    }
 }
 
 pub type AsyncResult<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;

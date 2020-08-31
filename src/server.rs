@@ -15,15 +15,12 @@ const BUFSIZE: usize = 2048;
 
 /// Server listener state. Created in the `run` call. It includes a `run` method
 /// which performs the TCP listening and initialization of per-connection state.
-struct Server<T: LoadBalancing> {
+struct Server {
     listener: TcpListener,
-    pool: Arc<Mutex<BackendPool<T>>>,
+    pool: Arc<Mutex<BackendPool>>,
 }
 
-impl<T> Server<T>
-where
-    T: LoadBalancing + Send + Sync + 'static,
-{
+impl Server {
     /// Create a new Server and run.
     pub async fn run(&mut self) -> AsyncResult<()> {
         let mut probe_handler = Handler {
@@ -74,14 +71,11 @@ where
 }
 
 #[derive(Clone)]
-struct Handler<T: LoadBalancing> {
-    pool: Arc<Mutex<BackendPool<T>>>,
+struct Handler {
+    pool: Arc<Mutex<BackendPool>>,
 }
 
-impl<T> Handler<T>
-where
-    T: LoadBalancing + Send + Sync + 'static,
-{
+impl Handler {
     /// Try to connect to all registered backends in the balance pool.
     ///
     /// The pool is the a shared mutable pointer guarded by a mutex
@@ -179,10 +173,7 @@ where
 ///
 /// Arguments are listener, a bound `TcpListener` and pool a `BackendPool` with type
 /// `LoadBalancing`
-pub async fn run<T: LoadBalancing + Send + Sync + 'static>(
-    listener: TcpListener,
-    pool: BackendPool<T>,
-) -> AsyncResult<()> {
+pub async fn run(listener: TcpListener, pool: BackendPool) -> AsyncResult<()> {
     let mut server = Server {
         listener,
         pool: Arc::new(Mutex::new(pool)),

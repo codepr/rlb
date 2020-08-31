@@ -1,7 +1,6 @@
 use rlb::backend::{Backend, BackendError, BackendPool};
 use rlb::balancing::RoundRobinBalancing;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex};
 
 #[test]
 fn backend_new_test() {
@@ -13,7 +12,7 @@ fn backend_new_test() {
 
 #[test]
 fn backend_pool_len() {
-    let mut pool = BackendPool::new(RoundRobinBalancing::new());
+    let mut pool = BackendPool::new(Box::new(RoundRobinBalancing::new()));
     assert_eq!(pool.len(), 0);
     pool.push(Backend::new(String::from(":5000"), None));
     assert_eq!(pool.len(), 1);
@@ -26,7 +25,7 @@ fn backend_pool_from_list() {
             Backend::new(String::from(":5000"), None),
             Backend::new(String::from(":5001"), None),
         ],
-        RoundRobinBalancing::new(),
+        Box::new(RoundRobinBalancing::new()),
     );
     assert_eq!(pool.len(), 2);
 }
@@ -38,7 +37,7 @@ fn backend_pool_next_backend_round_robin() {
             Backend::new(String::from(":5000"), None),
             Backend::new(String::from(":5001"), None),
         ],
-        RoundRobinBalancing::new(),
+        Box::new(RoundRobinBalancing::new()),
     );
     let index = pool.next_backend();
     assert_eq!(index, Err(BackendError::NoBackendAlive));

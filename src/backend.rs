@@ -64,14 +64,14 @@ impl Backend {
     }
 }
 
-pub struct BackendPool<T: LoadBalancing> {
+pub struct BackendPool {
     backends: Vec<Backend>,
-    balancing_algo: T,
+    balancing_algo: Box<dyn LoadBalancing + Send + Sync>,
 }
 
-impl<T: LoadBalancing> BackendPool<T> {
+impl BackendPool {
     /// Create a new BackendPool
-    pub fn new(balancing_algo: T) -> BackendPool<T> {
+    pub fn new(balancing_algo: Box<dyn LoadBalancing + Send + Sync>) -> BackendPool {
         BackendPool {
             backends: Vec::new(),
             balancing_algo,
@@ -82,7 +82,10 @@ impl<T: LoadBalancing> BackendPool<T> {
         self.backends.len()
     }
 
-    pub fn from_backends_list(backends: Vec<Backend>, balancing_algo: T) -> BackendPool<T> {
+    pub fn from_backends_list(
+        backends: Vec<Backend>,
+        balancing_algo: Box<dyn LoadBalancing + Send + Sync>,
+    ) -> BackendPool {
         BackendPool {
             backends,
             balancing_algo,
@@ -123,14 +126,14 @@ impl<T: LoadBalancing> BackendPool<T> {
     }
 }
 
-impl<T: LoadBalancing> Index<usize> for BackendPool<T> {
+impl Index<usize> for BackendPool {
     type Output = Backend;
     fn index(&self, index: usize) -> &Self::Output {
         &self.backends[index]
     }
 }
 
-impl<T: LoadBalancing> IndexMut<usize> for BackendPool<T> {
+impl IndexMut<usize> for BackendPool {
     fn index_mut(&mut self, index: usize) -> &mut Backend {
         &mut self.backends[index]
     }

@@ -6,6 +6,10 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+pub enum BalancingError {
+    UnknownAlgorithm,
+}
+
 /// Supported balancing algorithm types
 #[derive(Debug, PartialEq, Deserialize)]
 pub enum BalancingAlgorithm {
@@ -34,6 +38,17 @@ impl BalancingAlgorithm {
 
     pub fn hashing() -> Self {
         BalancingAlgorithm::Hashing
+    }
+}
+
+pub fn get_balancer(
+    balancing_algo: &BalancingAlgorithm,
+) -> Result<Box<dyn LoadBalancing + Send + Sync>, BalancingError> {
+    match balancing_algo {
+        BalancingAlgorithm::RoundRobin => Ok(Box::new(RoundRobinBalancing::new())),
+        BalancingAlgorithm::Random => Ok(Box::new(RandomBalancing::new())),
+        BalancingAlgorithm::LeastTraffic => Ok(Box::new(LeastTrafficBalancing::new())),
+        _ => Err(BalancingError::UnknownAlgorithm),
     }
 }
 
@@ -72,6 +87,12 @@ impl LoadBalancing for RoundRobinBalancing {
 
 pub struct RandomBalancing;
 
+impl RandomBalancing {
+    pub fn new() -> RandomBalancing {
+        RandomBalancing {}
+    }
+}
+
 impl LoadBalancing for RandomBalancing {
     /// Return a randomly choosen backend, the only restriction followed is that
     /// it must be alive and healthy.
@@ -89,6 +110,12 @@ impl LoadBalancing for RandomBalancing {
 }
 
 pub struct LeastTrafficBalancing;
+
+impl LeastTrafficBalancing {
+    pub fn new() -> LeastTrafficBalancing {
+        LeastTrafficBalancing {}
+    }
+}
 
 impl LoadBalancing for LeastTrafficBalancing {
     /// Find an available backend from a vector of `Backend` type objects based
