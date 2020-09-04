@@ -35,6 +35,7 @@ pub fn init_logging() -> Result<(), SetLoggerError> {
 
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct Config {
+    listen_on: String,
     backends: Vec<String>,
     timeout: i64,
     #[serde(default = "balancing::BalancingAlgorithm::round_robin")]
@@ -46,6 +47,10 @@ impl Config {
         let f = std::fs::File::open(path)?;
         let config: Config = serde_yaml::from_reader(f)?;
         return Ok(config);
+    }
+
+    pub fn listen_on(&self) -> &str {
+        &self.listen_on
     }
 
     pub fn backends(&self) -> &Vec<String> {
