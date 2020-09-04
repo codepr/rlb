@@ -2,5 +2,5 @@ listen_on: "127.0.0.1:6767"
 backends:
     - "127.0.0.1:7892"
     - "127.0.0.1:9898"
-timeout: 5000
+probe_interval: 5000
 balancing: round-robin

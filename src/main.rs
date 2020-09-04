@@ -21,7 +21,7 @@ pub async fn main() -> rlb::AsyncResult<()> {
         // Bind a TCP listener
         let listener = TcpListener::bind(config.listen_on()).await?;
         info!("Listening on {}", config.listen_on());
-        server::run(listener, pool).await?
+        server::run(listener, pool, config.probe_interval()).await?
     }
     Ok(())
 }

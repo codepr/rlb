@@ -17,13 +17,17 @@ use tokio::time::{self, delay_for, Duration};
 // Fixed read buffer size
 const BUFSIZE: usize = 2048;
 
-// Timeout magic value (5s)
-const TIMEOUT: u64 = 5000;
+// Fixed size exponential backoff value
+const BACKOFF: u64 = 128;
 
 /// Server listener state. Created in the `run` call. It includes a `run` method
 /// which performs the TCP listening and initialization of per-connection state.
 struct Server {
     listener: TcpListener,
+    /// Healthcheck probe interval in milliseconds
+    interval: u64,
+    /// Tcp exponential backoff threshold
+    backoff: u64,
     /// Shared pool handle. Contains the backends and the balancing algorithm chosen
     /// at the start-up of the application. Being an Arc Mutex guarded it's allowed
     /// to be cloned and locked in each task using it.
@@ -47,8 +51,9 @@ impl Server {
         let mut probe_handler = Handler {
             pool: self.pool.clone(),
         };
+        let interval = self.interval;
         tokio::spawn(async move {
-            if let Err(e) = probe_handler.probe_backends().await {
+            if let Err(e) = probe_handler.probe_backends(interval).await {
                 error!("Can't spawn `probe_backends` worker: {}", e);
             }
         });
@@ -86,7 +91,7 @@ impl Server {
             match self.listener.accept().await {
                 Ok((socket, _)) => return Ok(socket),
                 Err(err) => {
-                    if backoff > 64 {
+                    if backoff > self.backoff {
                         // Accept has failed too many times. Return the error.
                         return Err(err.into());
                     }
@@ -114,7 +119,7 @@ impl Handler {
     /// Try to connect to all registered backends in the balance pool.
     ///
     /// The pool is the a shared mutable pointer guarded by a mutex.
-    async fn probe_backends(&mut self) -> AsyncResult<()> {
+    async fn probe_backends(&mut self, interval: u64) -> AsyncResult<()> {
         loop {
             // Add a scope to automatically drop the mutex lock before the sleep,
             // alternatively call `drop(pool)` by hand
@@ -161,7 +166,7 @@ impl Handler {
                 }
             }
             // Sleep for a defined timeout
-            delay_for(Duration::from_millis(TIMEOUT)).await;
+            delay_for(Duration::from_millis(interval)).await;
         }
     }
 
@@ -234,9 +239,11 @@ impl Handler {
 ///
 /// Arguments are listener, a bound `TcpListener` and pool a `BackendPool` with type
 /// `LoadBalancing`
-pub async fn run(listener: TcpListener, pool: BackendPool) -> AsyncResult<()> {
+pub async fn run(listener: TcpListener, pool: BackendPool, interval: u64) -> AsyncResult<()> {
     let mut server = Server {
         listener,
+        interval,
+        backoff: BACKOFF,
         pool: Arc::new(Mutex::new(pool)),
     };
     server.run().await?;

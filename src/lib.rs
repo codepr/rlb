@@ -37,7 +37,7 @@ pub fn init_logging() -> Result<(), SetLoggerError> {
 pub struct Config {
     listen_on: String,
     backends: Vec<String>,
-    timeout: i64,
+    probe_interval: u64,
     #[serde(default = "balancing::BalancingAlgorithm::round_robin")]
     balancing: balancing::BalancingAlgorithm,
 }
@@ -57,8 +57,8 @@ impl Config {
         &self.backends
     }
 
-    pub fn timeout(&self) -> i64 {
-        self.timeout
+    pub fn probe_interval(&self) -> u64 {
+        self.probe_interval
     }
 
     pub fn balancing_algorithm(&self) -> &balancing::BalancingAlgorithm {
