@@ -149,8 +149,7 @@ impl Handler {
                                         .collect(),
                                 );
                                 stream.write_all(format!("{}", request).as_bytes()).await?;
-                                let n = stream.peek(&mut buffer).await?;
-                                stream.read(&mut buffer[..n]).await?;
+                                stream.read(&mut buffer).await?;
                                 let response = parse_message(&buffer).unwrap();
                                 // Health endpoint response inspection
                                 if response.status_code() == Some(StatusCode::new(200)) {
@@ -183,8 +182,7 @@ impl Handler {
     async fn handle_connection(&self, mut stream: TcpStream) -> AsyncResult<()> {
         let mut pool = self.pool.lock().await;
         let mut buffer = [0; BUFSIZE];
-        let n = stream.peek(&mut buffer).await?;
-        stream.read(&mut buffer[..n]).await?;
+        stream.read(&mut buffer).await?;
         let index = match pool.next_backend() {
             Ok(i) => i,
             Err(e) => {
@@ -219,14 +217,12 @@ impl Handler {
         // Log traffic on the backend
         let bytesout = stream.write(format!("{}", request).as_bytes()).await?;
         backend.increase_byte_traffic(bytesout);
-        let mut read_bytes = stream.peek(&mut response_buf).await?;
-        stream.read(&mut response_buf[..read_bytes]).await?;
+        let mut read_bytes = stream.read(&mut response_buf).await?;
         let response = parse_message(&response_buf).unwrap();
         // Multiple read till the message is completed in CHUNKED mode
         if response.transfer_encoding().unwrap_or(&"".to_string()) == "chunked" {
             while response_buf[read_bytes - 5..read_bytes] != [b'0', b'\r', b'\n', b'\r', b'\n'] {
-                read_bytes += stream.peek(&mut response_buf[..read_bytes]).await?;
-                stream.read(&mut response_buf[read_bytes..]).await?;
+                read_bytes += stream.read(&mut response_buf[read_bytes..]).await?;
             }
         }
         backend.increase_byte_traffic(read_bytes);

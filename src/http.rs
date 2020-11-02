@@ -29,6 +29,18 @@ impl fmt::Display for HttpVersion {
     }
 }
 
+impl HttpVersion {
+    pub fn from_str(s: &str) -> HttpVersion {
+        if s.starts_with("HTTP/1.0") {
+            HttpVersion::V10
+        } else if s.starts_with("HTTP/1.1") {
+            HttpVersion::V11
+        } else {
+            panic!("Unsupported HTTP version")
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct StatusCode(u16);
 
@@ -204,26 +216,11 @@ pub fn parse_message(buffer: &[u8]) -> Result<HttpMessage, HttpError> {
     // - If the first line starts with HTTP it's an HTTP response so the HTTP version is the first
     // token we must extract and no route are provided;
     // - Otherwise the version is generally the third token ot be parsed, following the route one
-
     let (version, route) = if content[0].starts_with("HTTP") {
-        (
-            if content[0].starts_with("HTTP/1.0") {
-                HttpVersion::V10
-            } else {
-                HttpVersion::V11
-            },
-            None,
-        )
+        (HttpVersion::from_str(&content[0]), None)
     } else {
         let r = chunk.nth(1).unwrap_or("/").to_string();
-        (
-            if chunk.next().unwrap().starts_with("HTTP/1.0") {
-                HttpVersion::V10
-            } else {
-                HttpVersion::V11
-            },
-            Some(r),
-        )
+        (HttpVersion::from_str(&chunk.next().unwrap()), Some(r))
     };
 
     // Parse the method (verb of the request)
