@@ -123,47 +123,46 @@ impl Handler {
         loop {
             // Add a scope to automatically drop the mutex lock before the sleep,
             // alternatively call `drop(pool)` by hand
-            {
-                let mut pool = self.pool.lock().await;
-                let mut buffer = [0; BUFSIZE];
-                // Iterating through all the backends and try to connect to each one, if an error
-                // in connection is raised, mark the backend as offline.
-                // Also if there's an healthcheck endpoint set for the backend, after a
-                // successfull connection try to query the endpoint, if the response is different
-                // from a `200 OK` mark the backend as offline.
-                for backend in pool.iter_mut() {
-                    let backend_addr: SocketAddr = backend
-                        .addr
-                        .parse()
-                        .expect("Unable to parse backend address");
-                    match TcpStream::connect(&backend_addr).await {
-                        // Connection OK, now check if an health_endpoint is set
-                        // and try to query it
-                        Ok(mut stream) => match backend.health_endpoint() {
-                            Some(h) => {
-                                let request = HttpMessage::new(
-                                    HttpMethod::Get(h.clone()),
-                                    [("Host".to_string(), backend.addr.to_string())]
-                                        .iter()
-                                        .cloned()
-                                        .collect(),
-                                );
-                                stream.write_all(format!("{}", request).as_bytes()).await?;
-                                stream.read(&mut buffer).await?;
-                                let response = parse_message(&buffer).unwrap();
-                                // Health endpoint response inspection
-                                if response.status_code() == Some(StatusCode::new(200)) {
-                                    backend.set_online()
-                                } else {
-                                    backend.set_offline()
-                                }
+            let mut pool = self.pool.lock().await;
+            let mut buffer = [0; BUFSIZE];
+            // Iterating through all the backends and try to connect to each one, if an error
+            // in connection is raised, mark the backend as offline.
+            // Also if there's an healthcheck endpoint set for the backend, after a
+            // successfull connection try to query the endpoint, if the response is different
+            // from a `200 OK` mark the backend as offline.
+            for backend in pool.iter_mut() {
+                let backend_addr: SocketAddr = backend
+                    .addr
+                    .parse()
+                    .expect("Unable to parse backend address");
+                match TcpStream::connect(&backend_addr).await {
+                    // Connection OK, now check if an health_endpoint is set
+                    // and try to query it
+                    Ok(mut stream) => match backend.health_endpoint() {
+                        Some(h) => {
+                            let request = HttpMessage::new(
+                                HttpMethod::Get(h.clone()),
+                                [("Host".to_string(), backend.addr.to_string())]
+                                    .iter()
+                                    .cloned()
+                                    .collect(),
+                            );
+                            stream.write_all(format!("{}", request).as_bytes()).await?;
+                            stream.read(&mut buffer).await?;
+                            let response = parse_message(&buffer).unwrap();
+                            // Health endpoint response inspection
+                            if response.status_code() == Some(StatusCode::new(200)) {
+                                backend.set_online()
+                            } else {
+                                backend.set_offline()
                             }
-                            None => backend.set_online(),
-                        },
-                        Err(_) => backend.set_offline(),
-                    }
+                        }
+                        None => backend.set_online(),
+                    },
+                    Err(_) => backend.set_offline(),
                 }
             }
+            drop(pool);
             // Sleep for a defined timeout
             delay_for(Duration::from_millis(interval)).await;
         }
@@ -171,7 +170,7 @@ impl Handler {
 
     /// Process a single connection.
     ///
-    /// First retrieve a valid backend to forward the request to then call `handle_request` method
+    /// First retrieve a valid backend to forward the request to then call `forward_request` method
     /// to forward the content to it and read the response back.
     ///
     /// # Errors
@@ -182,7 +181,9 @@ impl Handler {
     async fn handle_connection(&self, mut stream: TcpStream) -> AsyncResult<()> {
         let mut pool = self.pool.lock().await;
         let mut buffer = [0; BUFSIZE];
+        // Read request from the client (frontend connection)
         stream.read(&mut buffer).await?;
+        // Select a valid backend according to the balancing rules
         let index = match pool.next_backend() {
             Ok(i) => i,
             Err(e) => {
@@ -190,8 +191,9 @@ impl Handler {
                 return Err(Box::new(e));
             }
         };
-        let response = self.handle_request(&buffer, &mut pool[index]).await?;
-        stream.write_all(response.as_bytes()).await?;
+        // Forward the request to the selected backend and forward the response back to the client
+        let response = self.forward_request(&buffer, &mut pool[index]).await?;
+        stream.write_all(&response).await?;
         Ok(())
     }
 
@@ -204,7 +206,7 @@ impl Handler {
     ///
     /// Return an `Err` in case of communication errors with the backend (unable to read data or
     /// write it).
-    async fn handle_request(&self, buffer: &[u8], backend: &mut Backend) -> AsyncResult<String> {
+    async fn forward_request(&self, buffer: &[u8], backend: &mut Backend) -> AsyncResult<Vec<u8>> {
         let backend_addr: SocketAddr = backend
             .addr
             .parse()
@@ -227,7 +229,7 @@ impl Handler {
         }
         backend.increase_byte_traffic(read_bytes);
         stream.shutdown(Shutdown::Both)?;
-        return Ok(String::from_utf8_lossy(&response_buf[..]).to_string());
+        return Ok(response_buf.to_vec());
     }
 }
 

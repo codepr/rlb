@@ -208,8 +208,7 @@ impl fmt::Display for HttpMessage {
 pub fn parse_message(buffer: &[u8]) -> Result<HttpMessage, HttpError> {
     let request_str = String::from_utf8_lossy(&buffer[..]);
     let content: Vec<&str> = request_str.split(CRLF).collect();
-    let mut chunk = content[0].split_whitespace();
-    let mut first_line = content[0].split_whitespace();
+    let first_line: Vec<&str> = content[0].split_whitespace().collect();
 
     // Not really solid but separate version and route based on the start of the header line:
     //
@@ -219,33 +218,35 @@ pub fn parse_message(buffer: &[u8]) -> Result<HttpMessage, HttpError> {
     let (version, route) = if content[0].starts_with("HTTP") {
         (HttpVersion::from_str(&content[0]), None)
     } else {
-        let r = chunk.nth(1).unwrap_or("/").to_string();
-        (HttpVersion::from_str(&chunk.next().unwrap()), Some(r))
+        (
+            HttpVersion::from_str(&first_line[2]),
+            Some(first_line[1].to_string()),
+        )
     };
 
     // Parse the method (verb of the request)
-    let heading = match first_line.next() {
-        Some("GET") => HttpHeader::Method(version, HttpMethod::Get(route.unwrap())),
-        Some("POST") => HttpHeader::Method(version, HttpMethod::Post(route.unwrap())),
-        Some("PUT") => HttpHeader::Method(version, HttpMethod::Put(route.unwrap())),
-        Some("DELETE") => HttpHeader::Method(version, HttpMethod::Delete(route.unwrap())),
-        Some("CONNECT") => HttpHeader::Method(version, HttpMethod::Connect(route.unwrap())),
-        Some("HEAD") => HttpHeader::Method(version, HttpMethod::Head),
-        Some(_) => HttpHeader::Status(version, first_line.next().unwrap().to_string()),
-        None => return Err(HttpError::ParsingError),
+    let headline = match first_line[0] {
+        "GET" => HttpHeader::Method(version, HttpMethod::Get(route.unwrap())),
+        "POST" => HttpHeader::Method(version, HttpMethod::Post(route.unwrap())),
+        "PUT" => HttpHeader::Method(version, HttpMethod::Put(route.unwrap())),
+        "DELETE" => HttpHeader::Method(version, HttpMethod::Delete(route.unwrap())),
+        "CONNECT" => HttpHeader::Method(version, HttpMethod::Connect(route.unwrap())),
+        "HEAD" => HttpHeader::Method(version, HttpMethod::Head),
+        _ => HttpHeader::Status(version, first_line[1].to_string()),
     };
-    let mut headers: HashMap<String, String> = HashMap::new();
-    let hdr_content: Vec<&str> = content[0].split("\r\n").collect();
 
     // Populate headers map, starting from 1 as index to skip the first line which
     // contains just the HTTP method and route
-    for i in 1..hdr_content.len() {
-        let kv: Vec<&str> = hdr_content[i].split(":").collect();
-        headers.insert(kv[0].to_string(), kv[1].trim().to_string());
-    }
-    let body = content[1].trim_matches(char::from(0)).to_string();
+    let headers: HashMap<String, String> = content[0]
+        .split("\r\n")
+        .skip(1)
+        .map(|x| x.splitn(2, ":"))
+        .map(|mut x| (x.next().unwrap().to_string(), x.next().unwrap().to_string()))
+        .collect();
+
+    let body = content[1].trim_end_matches(char::from(0)).to_string();
     Ok(HttpMessage {
-        header: heading,
+        header: headline,
         headers,
         body: Some(body),
     })

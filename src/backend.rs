@@ -113,10 +113,7 @@ impl BackendPool {
                 break;
             }
         }
-        match index {
-            Some(i) => Ok(i),
-            None => Err(BackendError::NoBackendAlive),
-        }
+        index.map_or(Err(BackendError::NoBackendAlive), |i| Ok(i))
     }
 
     pub fn has_backends_available(&self) -> bool {
